@@ -1,0 +1,13 @@
+int i = 1, j;
+float res = 0;
+
+while(i < 10000) {
+	j = 1;
+	while(j < 10000) {
+		res += 1.0 / i / j;
+		j += 1;
+	}
+	i += 1;
+}
+
+Println(res);

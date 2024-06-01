@@ -1,0 +1,1927 @@
+
+#include <iostream>
+#include <sstream>
+#include <stdexcept>
+#include <map>
+#include <unordered_map>
+#include <set>
+#include <list>
+#include <stack>
+#include <vector>
+#include <cstdlib>
+#include <cstddef>
+
+#include <utility>
+#include <chrono>
+
+using namespace std;
+
+COMPILER Program
+
+enum Type : uint8_t {
+	
+	bool_t, 
+	int_t, 
+	float_t,
+	
+	pointer_t,
+	
+	size_of_type
+};
+
+enum Operation : uint8_t {
+	op_start = size_of_type,
+	
+	not_op,
+	
+	or_op,
+	and_op,
+	
+	int_int_bit_or_op,
+	int_int_bit_xor_op,
+	int_int_bit_and_op,
+	
+	bool_bool_eq_op,
+	int_int_eq_op,
+	float_float_eq_op,
+	int_float_eq_op,
+	float_int_eq_op,
+	
+	bool_bool_uneq_op,
+	int_int_uneq_op,
+	float_float_uneq_op,
+	int_float_uneq_op,
+	float_int_uneq_op,
+	
+	int_int_ls_op,
+	float_float_ls_op,
+	int_float_ls_op,
+	float_int_ls_op,
+	
+	int_int_gr_op,
+	float_float_gr_op,
+	int_float_gr_op,
+	float_int_gr_op,
+	
+	int_int_lseq_op,
+	float_float_lseq_op,
+	int_float_lseq_op,
+	float_int_lseq_op,
+	
+	int_int_greq_op,
+	float_float_greq_op,
+	int_float_greq_op,
+	float_int_greq_op,
+	
+	int_int_add_op,
+	float_float_add_op,
+	int_float_add_op,
+	float_int_add_op,
+	
+	int_int_sub_op,
+	float_float_sub_op,
+	int_float_sub_op,
+	float_int_sub_op,
+	
+	int_int_mul_op,
+	float_float_mul_op,
+	int_float_mul_op,
+	float_int_mul_op,
+	
+	int_int_div_op,
+	float_float_div_op,
+	int_float_div_op,
+	float_int_div_op,
+	
+	int_int_rem_op,
+	
+	add_val_op,
+	pop_val_op,
+	
+	bool_bool_asgn_op,
+	int_int_asgn_op,
+	int_float_asgn_op,
+	float_float_asgn_op,
+	float_int_asgn_op,
+	
+	int_int_add_asgn_op,
+	int_float_add_asgn_op,
+	float_float_add_asgn_op,
+	float_int_add_asgn_op,
+	
+	int_int_sub_asgn_op,
+	int_float_sub_asgn_op,
+	float_float_sub_asgn_op,
+	float_int_sub_asgn_op,
+	
+	int_int_mul_asgn_op,
+	int_float_mul_asgn_op,
+	float_float_mul_asgn_op,
+	float_int_mul_asgn_op,
+	
+	int_int_div_asgn_op,
+	int_float_div_asgn_op,
+	float_float_div_asgn_op,
+	float_int_div_asgn_op,
+	
+	int_int_rem_asgn_op,
+	
+	bool_print_op,
+	int_print_op,
+	float_print_op,
+	
+	print_del_op,
+	print_endl_op,
+	
+	if_op,
+	else_op,
+	while_op,
+	jump_op,
+	
+	int_to_bool_op,
+	float_to_bool_op,
+	bool_to_int_op,
+	float_to_int_op,
+	bool_to_float_op,
+	int_to_float_op
+} ;
+
+struct Op {
+	Operation opr;
+	pointert ptr, op1, op2;
+};
+
+struct Var {
+	pointert ptr;
+	Type type;
+};
+
+static vector<Type> types;
+
+static vector<Op> operations;
+
+static vector<uint8_t> tape;
+
+static vector<pointert> unused;
+
+static size_t scope_level;
+
+static map<wstring, Var> ident_table;
+
+static unordered_map<wstring, Var> global_scope;
+
+static stack<list<wstring>> to_remove;
+
+//----------------------------------------------------------
+
+inline static void reserve(size_t size) {
+	for(size_t i = 0; i < size; ++i) {
+		tape.push_back(-1);
+	}
+}
+
+inline static pointert choose_ident(const wchar_t* name, Type type) {
+	wstring sname(name);
+	if(ident_table.contains(sname)){
+		wcout << L"variable " << sname << L" already exists" << endl;
+		exit(1);
+	}
+	pointert ptr = size(tape);
+	ident_table[name] = {ptr, type};
+	switch(type){
+		case bool_t: 	
+			reserve(sizeof(bool));
+			break;
+		case int_t: 	
+			reserve(sizeof(intt));
+			break;
+		case float_t: 
+			reserve(sizeof(floatt));
+			break;
+	}
+	return ptr;
+}
+
+inline static Var get_ident(const wchar_t* name){
+	if( ident_table.contains(wstring(name))) {
+		return ident_table.at(wstring(name));
+	}
+	wcout << "variable " << name << " does not exist" << endl;
+	exit(1);
+}
+
+//----------------------------------------------------------
+
+static void prep() {
+	tape.shrink_to_fit();
+	operations.shrink_to_fit();
+	for(Op& x: operations) {
+		static set<Operation> not_conv = {if_op, else_op, while_op, jump_op};
+		if(not_conv.contains(x.opr) == false) {
+			x.ptr = pointert(data(tape) + x.ptr);
+		}
+		if(x.op1 == -1) {
+			x.op1 = 0;
+		}
+		else {
+			x.op1 = pointert(data(tape) + x.op1);
+		}
+		if (x.op2 == -1) {
+			x.op2 = 0;
+		}
+		else {
+			x.op2 = pointert(data(tape) + x.op2);
+		}
+	}
+}
+
+static void run() {
+	
+	size_t cur_opr = 0;
+	
+	while(cur_opr < size(operations)) {
+		
+		auto [opr, ptr, op1, op2] = operations[cur_opr];
+		//uint64_t b = uint64_t(data(tape));
+		//unused;
+		//tape;
+		
+		switch(opr) {
+
+			case not_op: {
+				*(bool*)ptr = not *(const bool*)op1;
+			} break;
+
+			case or_op: {
+				*(bool*)ptr = *(const bool*)op1 or *(const bool*)op2;
+			} break;
+				
+			case and_op: {
+				*(bool*)ptr = *(const bool*)op1 and *(const bool*)op2;
+			} break;
+			
+			case int_int_bit_and_op: {
+				*(intt*)ptr = *(const intt*)op1 & *(const intt*)op2;
+			} break;
+				
+			case int_int_bit_or_op: {
+				*(intt*)ptr = *(const intt*)op1 | *(const intt*)op2;
+			} break;
+				
+			case int_int_bit_xor_op: {
+				*(intt*)ptr = *(const intt*)op1 ^ *(const intt*)op2;
+			} break;
+				
+			case bool_bool_eq_op: {
+				*(bool*)ptr = *(const bool*)op1 == *(const bool*)op2;
+			} break;
+
+			case int_int_eq_op: {
+				*(bool*)ptr = *(const intt*)op1 == *(const intt*)op2;
+			} break;
+
+			case float_float_eq_op: {
+				*(bool*)ptr = *(const floatt*)op1 == *(const floatt*)op2;
+			} break;
+
+			case bool_bool_uneq_op: {
+				*(bool*)ptr = *(const bool*)op1 != *(const bool*)op2;
+			} break;
+
+			case int_int_uneq_op: {
+				*(bool*)ptr = *(const intt*)op1 != *(const intt*)op2;
+			} break;
+
+			case float_float_uneq_op: {
+				*(bool*)ptr = *(const floatt*)op1 != *(const floatt*)op2;
+			} break;
+
+			case int_int_ls_op: {
+				*(bool*)ptr = *(const intt*)op1 < *(const intt*)op2;
+			} break;
+
+			case float_float_ls_op: {
+				*(bool*)ptr = *(const floatt*)op1 < *(const floatt*)op2;
+			} break;
+
+			case int_float_ls_op: {
+				*(bool*)ptr = *(const intt*)op1 < *(const floatt*)op2;
+			} break;
+
+			case float_int_ls_op: {
+				*(bool*)ptr = *(const floatt*)op1 < *(const intt*)op2;
+			} break;
+
+			case int_int_gr_op: {
+				*(bool*)ptr = *(const intt*)op1 > *(const intt*)op2;
+			} break;
+
+			case float_float_gr_op: {
+				*(bool*)ptr = *(const floatt*)op1 > *(const floatt*)op2;
+			} break;
+
+			case int_float_gr_op: {
+				*(bool*)ptr = *(const intt*)op1 > *(const floatt*)op2;
+			} break;
+
+			case float_int_gr_op: {
+				*(bool*)ptr = *(const floatt*)op1 > *(const intt*)op2;
+			} break;
+
+			case int_int_lseq_op: {
+				*(bool*)ptr = *(const intt*)op1 <= *(const intt*)op2;
+			} break;
+
+			case float_float_lseq_op: {
+				*(bool*)ptr = *(const floatt*)op1 <= *(const floatt*)op2;
+			} break;
+
+			case int_float_lseq_op: {
+				*(bool*)ptr = *(const intt*)op1 <= *(const floatt*)op2;
+			} break;
+
+			case float_int_lseq_op: {
+				*(bool*)ptr = *(const floatt*)op1 <= *(const intt*)op2;
+			} break;
+
+			case int_int_greq_op: {
+				*(bool*)ptr = *(const intt*)op1 >= *(const intt*)op2;
+			} break;
+
+			case float_float_greq_op: {
+				*(bool*)ptr = *(const floatt*)op1 >= *(const floatt*)op2;
+			} break;
+
+			case int_float_greq_op: {
+				*(bool*)ptr = *(const intt*)op1 >= *(const floatt*)op2;
+			} break;
+
+			case float_int_greq_op: {
+				*(bool*)ptr = *(const floatt*)op1 >= *(const intt*)op2;
+			} break;
+
+			case int_int_add_op: {
+				*(intt*)ptr = *(const intt*)op1 + *(const intt*)op2;
+			} break;
+
+			case float_float_add_op: {
+				*(floatt*)ptr = *(const floatt*)op1 + *(const floatt*)op2;
+			} break;
+
+			case int_float_add_op: {
+				*(floatt*)ptr = *(const intt*)op1 + *(const floatt*)op2;
+			} break;
+			
+			case float_int_add_op: {
+				*(floatt*)ptr = *(const floatt*)op1 + *(const intt*)op2;
+			} break;
+
+			case int_int_sub_op: {
+				*(intt*)ptr = *(const intt*)op1 - *(const intt*)op2;
+			} break;
+
+			case float_float_sub_op: {
+				*(floatt*)ptr = *(const floatt*)op1 - *(const floatt*)op2;
+			} break;
+
+			case int_float_sub_op: {
+				*(floatt*)ptr = *(const intt*)op1 - *(const floatt*)op2;
+			} break;
+			
+			case float_int_sub_op: {
+				*(floatt*)ptr = *(const floatt*)op1 - *(const intt*)op2;
+			} break;
+
+			case int_int_mul_op: {
+				*(intt*)ptr = *(const intt*)op1 * *(const intt*)op2;
+			} break;
+
+			case float_float_mul_op: {
+				*(floatt*)ptr = *(const floatt*)op1 * *(const floatt*)op2;
+			} break;
+
+			case int_float_mul_op: {
+				*(floatt*)ptr = *(const intt*)op1 * *(const floatt*)op2;
+			} break;
+			
+			case float_int_mul_op: {
+				*(floatt*)ptr = *(const floatt*)op1 * *(const intt*)op2;
+			} break;
+
+			case int_int_div_op: {
+				*(intt*)ptr = *(const intt*)op1 / *(const intt*)op2;
+			} break;
+
+			case float_float_div_op: {
+				*(floatt*)ptr = *(const floatt*)op1 / *(const floatt*)op2;
+			} break;
+
+			case int_float_div_op: {
+				*(floatt*)ptr = *(const intt*)op1 / *(const floatt*)op2;
+			} break;
+			
+			case float_int_div_op: {
+				*(floatt*)ptr = *(const floatt*)op1 / *(const intt*)op2;
+			} break;
+
+			case int_int_rem_op: {
+				*(intt*)ptr = *(const intt*)op1 % *(const intt*)op2;
+			} break;
+				
+			case bool_bool_asgn_op: {
+				*(bool*)ptr = *(const bool*)op1;
+			} break;
+
+			case int_int_asgn_op: {
+				*(intt*)ptr = *(const intt*)op1;
+			} break;
+
+			case int_float_asgn_op: {
+				*(intt*)ptr = *(const floatt*)op1;
+			} break;
+
+			case float_int_asgn_op: {
+				*(floatt*)ptr = *(const intt*)op1;
+			} break;
+
+			case float_float_asgn_op: {
+				*(floatt*)ptr = *(const floatt*)op1;
+			} break;
+
+			case int_int_add_asgn_op: {
+				*(intt*)ptr += *(const intt*)op1;
+			} break;
+
+			case int_float_add_asgn_op: {
+				*(intt*)ptr += *(const floatt*)op1;
+			} break;
+
+			case float_float_add_asgn_op: {
+				*(floatt*)ptr += *(const floatt*)op1;
+			} break;
+
+			case float_int_add_asgn_op: {
+				*(floatt*)ptr += *(const intt*)op1;
+			} break;
+
+			case int_int_sub_asgn_op: {
+				*(intt*)ptr -= *(const intt*)op1;
+			} break;
+
+			case int_float_sub_asgn_op: {
+				*(intt*)ptr -= *(const floatt*)op1;
+			} break;
+
+			case float_float_sub_asgn_op: {
+				*(floatt*)ptr -= *(const intt*)op1;
+			} break;
+
+			case float_int_sub_asgn_op: {
+				*(floatt*)ptr -= *(const intt*)op1;
+			} break;
+			
+			case int_int_mul_asgn_op: {
+				*(intt*)ptr *= *(const intt*)op1;
+			} break;
+
+			case int_float_mul_asgn_op: {
+				*(intt*)ptr *= *(const floatt*)op1;
+			} break;
+
+			case float_float_mul_asgn_op: {
+				*(floatt*)ptr *= *(const floatt*)op1;
+			} break;
+
+			case float_int_mul_asgn_op: {
+				*(floatt*)ptr *= *(const intt*)op1;
+			} break;
+			
+			case int_int_div_asgn_op: {
+				*(intt*)ptr /= *(const intt*)op1;
+			} break;
+
+			case int_float_div_asgn_op: {
+				*(intt*)ptr /= *(const floatt*)op1;
+			} break;
+
+			case float_float_div_asgn_op: {
+				*(floatt*)ptr /= *(const floatt*)op1;
+			} break;
+
+			case float_int_div_asgn_op: {
+				*(floatt*)ptr /= *(const intt*)op1;
+			} break;
+			
+			case int_int_rem_asgn_op: {
+				*(intt*)ptr %= *(const intt*)op1;
+			} break;
+			
+			case bool_print_op: {
+				cout << (*(bool*)op1 ? "True" : "False");
+			} break;
+
+			case int_print_op: {
+				cout << *(intt*)op1;
+			} break;
+
+			case float_print_op: {
+				cout << *(floatt*)op1;
+			} break;
+
+			case print_del_op: {
+				cout << " ";
+			} break;
+
+			case print_endl_op: {
+				cout << "\n";
+			} break;
+
+			case if_op: {
+				if(*(bool*)op1 == false) {
+					cur_opr = ptr - 1;
+				}
+			} break;
+
+			case else_op: {
+				if(*(bool*)op1) {
+					cur_opr = ptr - 1;
+				}
+			} break;
+
+			case while_op: {
+				if(*(bool*)op1 == false) {
+					cur_opr = ptr - 1;
+				}
+			} break;
+
+			case jump_op: {
+				cur_opr = ptr - 1;
+			} break;
+				
+			case int_to_bool_op: {
+				*(bool*)ptr = *(intt*)op1;
+			} break;
+
+			case float_to_bool_op: {
+				*(bool*)ptr = *(floatt*)op1;
+			} break;
+
+			case bool_to_int_op: {
+				*(intt*)ptr = *(bool*)op1;
+			} break;
+
+			case float_to_int_op: {
+				*(intt*)ptr = *(floatt*)op1;
+			} break;
+
+			case bool_to_float_op: {
+				*(floatt*)ptr = *(bool*)op1;
+			} break;
+
+			case int_to_float_op: {
+				*(floatt*)ptr = *(intt*)op1;
+			} break;
+			
+		}
+		
+		++cur_opr;
+	}
+}
+
+//--------------------------------------------------
+
+inline static void add_bool(bool val) {
+	unused.push_back(size(tape));
+	reserve(sizeof(bool));
+	*(bool*)(data(tape) + size(tape) - sizeof(bool)) = val;
+	types.push_back(bool_t);
+}
+
+inline static void add_int(intt val) {
+	unused.push_back(size(tape));
+	reserve(sizeof(intt));
+	*(intt*)(data(tape) + size(tape) - sizeof(intt)) = val;
+	types.push_back(int_t);
+}
+
+inline static void add_float(floatt val) {
+	unused.push_back(size(tape));
+	reserve(sizeof(floatt));
+	*(floatt*)(data(tape) + size(tape) - sizeof(floatt)) = val;
+	types.push_back(float_t);
+}
+
+inline static void add_val(pointert ptr, Type type) {
+	unused.push_back(ptr);
+	add_type(type);
+}
+
+inline static void pop_val(int amount = 1) {
+	for (int i = 0; i < amount; i++) {
+		unused.pop_back();
+		types.pop_back();
+	}
+}
+
+inline static void add_op(Operation opr, pointert ptr = -2, pair<pointert, pointert> op = {-1, -1}) {
+	if(ptr == -1){ 
+		ptr = size(tape);
+		switch(types.back()){
+		case bool_t: 	
+			reserve(sizeof(bool));
+			break;
+		case int_t: 	
+			reserve(sizeof(intt));
+			break;
+		case float_t: 
+			reserve(sizeof(floatt));
+			break;
+		}
+	}
+	unused.push_back(ptr);
+	operations.emplace_back(opr, ptr, op.first, op.second);
+}
+
+inline static void add_type(Type type) {
+	types.push_back(type);
+}
+
+inline static void switch_type(Type type) {
+	types.back() = type;
+}
+
+inline static Type pop_type() {
+	Type res = types.back();
+	types.pop_back();
+	return res;
+}
+
+inline static void add_var(Var x) {
+	unused.push_back(x.ptr);
+	types.push_back(x.type);
+}
+
+inline static pair<pointert, pointert> get_val() {
+	pair<pointert, pointert> res;
+	res.first = unused.back();
+	unused.pop_back();
+	res.second = -1;
+	return res;
+}
+
+inline static pair<pointert, pointert> get_vals() {
+	pair<pointert, pointert> res;
+	res.second = unused.back();
+	unused.pop_back();
+	res.first = unused.back();
+	unused.pop_back();
+	return res;
+}
+
+//--------------------------------------------------
+
+// LL(1) conflic resolution functions
+
+bool is_declaration() 
+{
+	static vector<int> types = {
+		_VAR, 
+		_BOOL,
+		_INT,
+		_FLOAT
+	};
+    return 
+    find(begin(types), end(types), int(la->kind)) != end(types) and 
+    scanner->Peek()->kind == _ID;
+}
+
+bool is_assignment() 
+{
+	if(la->kind != _ID){
+		return false;
+	}
+    auto kind = scanner->Peek()->kind;
+    return 
+	kind ==     _EQUALSIGN or 
+	kind == _ADD_EQUALSIGN or 
+	kind == _SUB_EQUALSIGN or 
+	kind == _MUL_EQUALSIGN or 
+	kind == _DIV_EQUALSIGN or 
+	kind == _REM_EQUALSIGN;
+}
+
+CHARACTERS
+
+letter = 
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz".
+    
+digit = 
+    "0123456789".
+    
+cr  = 
+    '\r'.
+    
+lf  = 
+    '\n'.
+    
+tab = 
+    '\t'.
+
+TOKENS
+   
+ID = 
+    letter {letter | digit | "_"}.
+    
+NUMBER = 
+    digit {digit}.
+
+EQUALSIGN =
+    "=".
+    
+ADD_EQUALSIGN =
+    "+=".
+    
+SUB_EQUALSIGN =
+    "-=".
+    
+MUL_EQUALSIGN =
+    "*=".
+    
+DIV_EQUALSIGN =
+    "/=".
+    
+REM_EQUALSIGN =
+    "%=".
+    
+ENDL =
+    "endl".
+	
+DEL =
+	"del"
+	.
+
+VAR =
+	"var"
+	.
+    
+BOOL =
+	"bool"
+	.
+    
+INT =
+	"int"
+	.
+    
+FLOAT =
+	"float"
+	.
+
+
+PRAGMAS
+
+COMMENTS FROM "/*" TO "*/" NESTED
+COMMENTS FROM "//" TO lf
+
+IGNORE cr + lf + tab
+
+
+
+PRODUCTIONS
+
+Program = 
+	(. using namespace std::chrono; .)
+	(. time_point<steady_clock> start = steady_clock::now(); .)
+	
+    Statements
+	
+	(. cmp_time = duration<double, milliseconds::period>(steady_clock::now() - start).count(); .)
+	(. start = steady_clock::now(); .)
+	
+	(. 
+		prep(); 
+		run(); 
+	.)
+	
+	(. run_time = duration<double, milliseconds::period>(steady_clock::now() - start).count(); .)
+    .
+    
+Statements = 
+    { Statement }
+    .
+    
+Statement =
+	IF (is_declaration())
+	VariableDeclaration ";"
+	|
+	Expression 
+	(. pop_val(); .)
+	{
+		","
+		Expression 
+		(. pop_val(); .)
+	}
+	";"
+    |
+    ProcCall ";"
+	|
+	Conditional
+	|
+	Loop
+	|
+	Scope
+    .
+	
+Scope =
+	"{" Statements "}"
+	.
+	
+VariableDeclaration =
+	(. Type type; .)
+	(
+		  BOOL		(. type = bool_t;   .)
+		| INT    	(. type = int_t;    .)
+		| FLOAT 	(. type = float_t; 	.)
+	)
+	SingleDeclaration<type>
+	{
+		","
+		SingleDeclaration<type>
+	}
+	.
+	
+SingleDeclaration<Type type> =
+	ID
+	(. pointert ptr = choose_ident(t->val, type); .)
+	(
+		"="
+		Expression
+		|
+		(. 
+			switch(type) {
+				case bool_t: {
+					add_bool(false);
+				} break;
+				case int_t: {
+					add_int(0);
+				} break;
+				case float_t: {
+					add_float(0);
+				} break;
+			}
+		.)
+	)
+	(. 
+		switch(type) {
+			case bool_t: {
+				switch(types.back()) {
+					case bool_t: {
+						add_op(bool_bool_asgn_op, ptr, get_val());
+					} break;
+					case int_t: {
+						cout << "asgn" << endl;
+						exit(1);
+					} break;
+					case float_t: {
+						cout << "asgn" << endl;
+						exit(1);
+					} break;
+				}
+			} break;
+			case int_t: {
+				switch(types.back()) {
+					case bool_t: {
+						cout << "asgn" << endl;
+						exit(1);
+					} break;
+					case int_t: {
+						add_op(int_int_asgn_op, ptr, get_val());
+					} break;
+					case float_t: {
+						add_op(int_float_asgn_op, ptr, get_val());
+					} break;
+				}
+			} break;
+			case float_t: {
+				switch(types.back()) {
+					case bool_t: {
+						cout << "asgn" << endl;
+						exit(1);
+					} break;
+					case int_t: {
+						add_op(float_int_asgn_op, ptr, get_val());
+					} break;
+					case float_t: {
+						add_op(float_float_asgn_op, ptr, get_val());
+					} break;
+				}
+			} break;
+		}
+		pop_val();
+	.)
+	.
+	
+Conditional =
+	If
+	.
+	
+If = 
+	"if" "(" Expression ")"
+	(. 
+		if(types.back() != bool_t) {
+			cout << "not bool in if" << endl;
+			exit(1);
+		}
+		
+		pointert if_pos = size(operations);
+		add_op(if_op, -1, {unused.back(), -1});
+		
+		vector<pointert> else_pos;
+	.)
+	Scope
+	(. operations[if_pos].ptr = size(operations); .)
+	{
+		(. 
+			else_pos.push_back(size(operations));
+			add_op(else_op, -1, get_val());  
+		.)
+		"elif" "(" Expression ")"
+		(. 
+			if(types.back() != bool_t) {
+				cout << "not bool in elif" << endl;
+				exit(1);
+			}
+			
+			pointert if_pos = size(operations);
+			add_op(if_op, -1, {unused.back(), -1});
+		.)
+		Scope
+		(. operations[if_pos].ptr = size(operations); .)
+	}
+	(
+		(. 
+			else_pos.push_back(size(operations));
+			add_op(else_op, -1, get_val());  
+		.)
+		"else" 
+		Scope
+		|
+		(. pop_val(); .)
+	)
+	(.
+		for(pointert pos: else_pos) {
+			operations[pos].ptr = size(operations);
+		}
+	.)
+	.
+	
+Loop = 
+	While | For
+	.
+	
+While =
+	(. pointert begin = size(operations); .)
+	"while" "(" Expression ")"
+	(. 
+		if(types.back() != bool_t) {
+			cout << "not bool in while" << endl;
+			exit(1);
+		}
+	
+		pointert pos = size(operations);
+		add_op(while_op, -2, get_val()); 
+	.)
+	Scope
+	(. 
+		add_op(jump_op, begin);
+		operations[pos].ptr = size(operations);
+	.)
+	.
+	
+For = 
+	"for" "(" Expression ";" Expression ";" Expression ")"
+	Scope
+	.
+    
+Expression =
+	IF(is_assignment())
+	Assignment
+	|
+    Expr
+    .
+	
+Assignment =
+	ID
+	(. auto [ptr, ltype] = get_ident(t->val); .)
+	(
+		"="
+		Expression
+		(. 
+			Type rtype = pop_type();
+			switch(ltype) {
+			case bool_t: {
+				add_type(bool_t);
+				switch(rtype) {
+					case bool_t: {
+						add_op(bool_bool_asgn_op, ptr, get_val());
+					} break;
+					case int_t: {
+						cout << "asgn" << endl;
+						exit(1);
+					} break;
+					case float_t: {
+						cout << "asgn" << endl;
+						exit(1);
+					} break;
+				}
+			} break;
+			case int_t: {
+				add_type(int_t);
+				switch(rtype) {
+					case bool_t: {
+						cout << "asgn" << endl;
+						exit(1);
+					} break;
+					case int_t: {
+						add_op(int_int_asgn_op, ptr, get_val());
+					} break;
+					case float_t: {
+						add_op(int_float_asgn_op, ptr, get_val());
+					} break;
+				}
+			} break;
+			case float_t: {
+				add_type(float_t);
+				switch(rtype) {
+					case bool_t: {
+						cout << "asgn" << endl;
+						exit(1);
+					} break;
+					case int_t: {
+						add_op(float_int_asgn_op, ptr, get_val());
+					} break;
+					case float_t: {
+						add_op(float_float_asgn_op, ptr, get_val());
+					} break;
+				}
+			} break;
+		}
+		.)
+		|
+		"+="
+		Expression
+		(. 
+			Type rtype = pop_type();
+			switch(ltype) {
+			case bool_t:
+				cout << "can not add assign to bool" << endl;
+				exit(1);
+				break;
+			case int_t:
+				add_type(int_t);
+				switch(rtype) {
+				case bool_t:
+					cout << "asgn" << endl;
+					exit(1);
+					break;
+				case int_t:
+					add_op(int_int_add_asgn_op, ptr, get_val());
+					break;
+				case float_t:
+					add_op(int_float_add_asgn_op, ptr, get_val());
+					break;
+				}
+				break;
+			case float_t:
+				add_type(float_t);
+				switch(rtype) {
+				case bool_t:
+					cout << "asgn" << endl;
+					exit(1);
+					break;
+				case int_t:
+					add_op(float_int_add_asgn_op, ptr, get_val());
+					break;
+				case float_t:
+					add_op(float_float_add_asgn_op, ptr, get_val());
+					break;
+				}
+				break;
+			}
+		.)
+		|
+		"-="
+		Expression
+		(. 
+			Type rtype = pop_type();
+			switch(ltype) {
+			case bool_t:
+				cout << "can not sub assign to bool" << endl;
+				exit(1);
+				break;
+			case int_t:
+				add_type(int_t);
+				switch(rtype) {
+				case bool_t:
+					cout << "asgn" << endl;
+					exit(1);
+					break;
+				case int_t:
+					add_op(int_int_sub_asgn_op, ptr, get_val());
+					break;
+				case float_t:
+					add_op(int_float_sub_asgn_op, ptr, get_val());
+					break;
+				}
+				break;
+			case float_t:
+				add_type(float_t);
+				switch(rtype) {
+				case bool_t:
+					cout << "asgn" << endl;
+					exit(1);
+					break;
+				case int_t:
+					add_op(float_int_sub_asgn_op, ptr, get_val());
+					break;
+				case float_t:
+					add_op(float_float_sub_asgn_op, ptr, get_val());
+					break;
+				}
+				break;
+			}
+		.)
+		|
+		"*="
+		Expression
+		(. 
+			Type rtype = pop_type();
+			switch(ltype) {
+			case bool_t:
+				cout << "can not mul assign to bool" << endl;
+				exit(1);
+				break;
+			case int_t:
+				add_type(int_t);
+				switch(rtype) {
+				case bool_t:
+					cout << "asgn" << endl;
+					exit(1);
+					break;
+				case int_t:
+					add_op(int_int_mul_asgn_op, ptr, get_val());
+					break;
+				case float_t:
+					add_op(int_float_mul_asgn_op, ptr, get_val());
+					break;
+				}
+				break;
+			case float_t:
+				add_type(float_t);
+				switch(rtype) {
+				case bool_t:
+					cout << "asgn" << endl;
+					exit(1);
+					break;
+				case int_t:
+					add_op(float_int_mul_asgn_op, ptr, get_val());
+					break;
+				case float_t:
+					add_op(float_float_mul_asgn_op, ptr, get_val());
+					break;
+				}
+				break;
+			}
+		.)
+		|
+		"/="
+		Expression
+		(. 
+			Type rtype = pop_type();
+			switch(ltype) {
+			case bool_t:
+				cout << "can not div assign to bool" << endl;
+				exit(1);
+				break;
+			case int_t:
+				add_type(int_t);
+				switch(rtype) {
+				case bool_t:
+					cout << "asgn" << endl;
+					exit(1);
+					break;
+				case int_t:
+					add_op(int_int_div_asgn_op, ptr, get_val());
+					break;
+				case float_t:
+					add_op(int_float_div_asgn_op, ptr, get_val());
+					break;
+				}
+				break;
+			case float_t:
+				add_type(float_t);
+				switch(rtype) {
+				case bool_t:
+					cout << "asgn" << endl;
+					exit(1);
+					break;
+				case int_t:
+					add_op(float_int_div_asgn_op, ptr, get_val());
+					break;
+				case float_t:
+					add_op(float_float_div_asgn_op, ptr, get_val());
+					break;
+				}
+				break;
+			}
+		.)
+		|
+		"%="
+		Expression
+		(. 
+			Type rtype = pop_type();
+			if(ltype != int_t or rtype != int_t) {
+				cout << "can not do rem assign with no int" << endl;
+				exit(1);
+			}
+			add_type(int_t);
+			add_op(int_int_rem_asgn_op, ptr, get_val());
+		.)
+	)
+	.	
+
+Expr = 
+	BoolTerm
+	{
+		"or"
+		BoolTerm
+		(. 
+			if(types.back() != bool_t) {
+				cout << "can not do or with no bool" << endl;
+				exit(1);
+			}
+			types.pop_back();
+			if(types.back() != bool_t) {
+				cout << "can not do or with no bool" << endl;
+				exit(1);
+			}
+			
+			add_op(or_op, -1, get_vals()); 
+		.)
+	}
+	.
+	
+BoolTerm = 
+	BitOr
+	{
+		"and"
+		BitOr
+		(. 
+			if(types.back() != bool_t) {
+				cout << "can not do and with no bool" << endl;
+				exit(1);
+			}
+			types.pop_back();
+			if(types.back() != bool_t) {
+				cout << "can not do and with no bool" << endl;
+				exit(1);
+			}
+			
+			add_op(and_op, -1, get_vals()); 
+		.)
+	}
+	.
+	
+BitOr =
+	BitXor
+	{
+		"|"
+		BitXor
+		(. 
+			if(pop_type() != int_t) {
+				cout << "can not do bit or with no int" << endl;
+				exit(1);
+			}
+			if(types.back() != int_t) {
+				cout << "can not do bit or with no int" << endl;
+				exit(1);
+			}
+			
+			add_op(int_int_bit_or_op, -1, get_vals()); 
+		.)
+	}
+	.
+	
+BitXor =
+	BitAnd
+	{
+		"^"
+		BitAnd
+		(. 
+			if(pop_type() != int_t) {
+				cout << "can not do bit xor with no int" << endl;
+				exit(1);
+			}
+			if(types.back() != int_t) {
+				cout << "can not do bit xor with no int" << endl;
+				exit(1);
+			}
+			
+			add_op(int_int_bit_xor_op, -1, get_vals()); 
+		.)
+	}
+	.
+	
+BitAnd =
+	BoolEq
+	{
+		"&"
+		BoolEq
+		(. 
+			if(pop_type() != int_t) {
+				cout << "can not do bit and with no int" << endl;
+				exit(1);
+			}
+			if(types.back() != int_t) {
+				cout << "can not do bit and with no int" << endl;
+				exit(1);
+			}
+			
+			add_op(int_int_bit_and_op, -1, get_vals()); 
+		.)
+	}
+	.
+	
+BoolEq = 
+	BoolComp
+	[	
+		(. 
+			Type type = pop_type();
+			if(type != types.back()) {
+				cout << "can not do eq/uneq with different types" << endl;
+				exit(1);
+			}
+			switch_type(bool_t);
+		.)
+		(
+			"==" BoolComp 
+			(.
+				switch(type) {
+				case bool_t:
+					add_op(bool_bool_eq_op, -1, get_vals());
+					break;
+				case int_t:
+					add_op(int_int_eq_op, -1, get_vals());
+					break;
+				case float_t:
+					add_op(float_float_eq_op, -1, get_vals());
+					break;
+				}
+			.)
+			| 
+			"!=" BoolComp 
+			(.
+				switch(type) {
+				case bool_t:
+					add_op(bool_bool_uneq_op, -1, get_vals());
+					break;
+				case int_t:
+					add_op(int_int_uneq_op, -1, get_vals());
+					break;
+				case float_t:
+					add_op(float_float_uneq_op, -1, get_vals());
+					break;
+				}
+			.)
+		)
+	]
+	.
+    
+BoolComp =
+	ArExpr
+	[
+		(
+			"<"  ArExpr 
+			(.
+				switch(pop_type()) {
+				case bool_t:
+					cout << "comp" << endl;
+					exit(1);
+				case int_t:
+					switch(types.back()) {
+					case bool_t:
+						cout << "comp" << endl;
+						exit(1);
+						break;
+					case int_t:
+						switch_type(bool_t);
+						add_op(int_int_ls_op, -1, get_vals());
+						break;
+					case float_t:
+						switch_type(bool_t);
+						add_op(float_int_ls_op, -1, get_vals());
+						break;
+					}
+					break;
+				case float_t:
+					switch(types.back()) {
+					case bool_t:
+						cout << "comp" << endl;
+						exit(1);
+						break;
+					case int_t:
+						switch_type(bool_t);
+						add_op(int_float_ls_op, -1, get_vals());
+						break;
+					case float_t:
+						switch_type(bool_t);
+						add_op(float_float_ls_op, -1, get_vals());
+						break;
+					}
+					break;
+				}
+			.)
+			| 
+			">"  ArExpr 
+			(.
+				switch(pop_type()) {
+				case bool_t:
+					cout << "comp" << endl;
+					exit(1);
+				case int_t:
+					switch(types.back()) {
+					case bool_t:
+						cout << "comp" << endl;
+						exit(1);
+						break;
+					case int_t:
+						switch_type(bool_t);
+						add_op(int_int_gr_op, -1, get_vals());
+						break;
+					case float_t:
+						switch_type(bool_t);
+						add_op(float_int_gr_op, -1, get_vals());
+						break;
+					}
+					break;
+				case float_t:
+					switch(types.back()) {
+					case bool_t:
+						cout << "comp" << endl;
+						exit(1);
+						break;
+					case int_t:
+						switch_type(bool_t);
+						add_op(int_float_gr_op, -1, get_vals());
+						break;
+					case float_t:
+						switch_type(bool_t);
+						add_op(float_float_gr_op, -1, get_vals());
+						break;
+					}
+					break;
+				}
+			.)
+			| 
+			"<=" ArExpr 
+			(.
+				switch(pop_type()) {
+				case bool_t:
+					cout << "comp" << endl;
+					exit(1);
+				case int_t:
+					switch(types.back()) {
+					case bool_t:
+						cout << "comp" << endl;
+						exit(1);
+						break;
+					case int_t:
+						switch_type(bool_t);
+						add_op(int_int_lseq_op, -1, get_vals());
+						break;
+					case float_t:
+						switch_type(bool_t);
+						add_op(float_int_lseq_op, -1, get_vals());
+						break;
+					}
+					break;
+				case float_t:
+					switch(types.back()) {
+					case bool_t:
+						cout << "comp" << endl;
+						exit(1);
+						break;
+					case int_t:
+						switch_type(bool_t);
+						add_op(int_float_lseq_op, -1, get_vals());
+						break;
+					case float_t:
+						switch_type(bool_t);
+						add_op(float_float_lseq_op, -1, get_vals());
+						break;
+					}
+					break;
+				}
+			.)
+			| 
+			">=" ArExpr 
+			(.
+				switch(pop_type()) {
+				case bool_t:
+					cout << "comp" << endl;
+					exit(1);
+				case int_t:
+					switch(types.back()) {
+					case bool_t:
+						cout << "comp" << endl;
+						exit(1);
+						break;
+					case int_t:
+						switch_type(bool_t);
+						add_op(int_int_greq_op, -1, get_vals());
+						break;
+					case float_t:
+						switch_type(bool_t);
+						add_op(float_int_greq_op, -1, get_vals());
+						break;
+					}
+					break;
+				case float_t:
+					switch(types.back()) {
+					case bool_t:
+						cout << "comp" << endl;
+						exit(1);
+						break;
+					case int_t:
+						switch_type(bool_t);
+						add_op(int_float_greq_op, -1, get_vals());
+						break;
+					case float_t:
+						switch_type(bool_t);
+						add_op(float_float_greq_op, -1, get_vals());
+						break;
+					}
+					break;
+				}
+			.)
+		)
+	]
+	|
+	"not" "(" Expression ")" 
+	(. 
+		if(types.back() != bool_t) {
+			cout << "can not do not with no bool" << endl;
+			exit(1);
+		}
+		
+		add_op(not_op, -1, get_val()); 
+	.)
+	.
+	
+ArExpr =
+    [ "+" ]
+    Term
+    { 
+		"+" Term 
+		(. 
+			switch(pop_type()) {
+			case bool_t:
+				cout << "add" << endl;
+				exit(1);
+				break;
+			case int_t:
+				switch(types.back()) {
+				case bool_t:
+					cout << "add" << endl;
+					exit(1);
+					break;
+				case int_t:
+					add_op(int_int_add_op, -1, get_vals());
+					break;
+				case float_t:
+					add_op(float_int_add_op, -1, get_vals());
+					break;
+				}
+				break;
+			case float_t:
+				switch(types.back()) {
+				case bool_t:
+					cout << "add" << endl;
+					exit(1);
+					break;
+				case int_t:
+					switch_type(float_t);
+					add_op(int_float_add_op, -1, get_vals());
+					break;
+				case float_t:
+					add_op(float_float_add_op, -1, get_vals());
+					break;
+				}
+				break;
+			}
+		.)
+		| 
+		"-" Term
+		(. 
+			switch(pop_type()) {
+			case bool_t:
+				cout << "sub" << endl;
+				exit(1);
+				break;
+			case int_t:
+				switch(types.back()) {
+				case bool_t:
+					cout << "sub" << endl;
+					exit(1);
+					break;
+				case int_t:
+					add_op(int_int_sub_op, -1, get_vals());
+					break;
+				case float_t:
+					add_op(float_int_sub_op, -1, get_vals());
+					break;
+				}
+				break;
+			case float_t:
+				switch(types.back()) {
+				case bool_t:
+					cout << "sub" << endl;
+					exit(1);
+					break;
+				case int_t:
+					switch_type(float_t);
+					add_op(int_float_sub_op, -1, get_vals());
+					break;
+				case float_t:
+					add_op(float_float_sub_op, -1, get_vals());
+					break;
+				}
+				break;
+			}
+		.)
+    }
+    .
+    
+Term =
+    Value
+    {
+		"*" Value 
+		(. 
+			switch(pop_type()) {
+			case bool_t:
+				cout << "mul" << endl;
+				exit(1);
+				break;
+			case int_t:
+				switch(types.back()) {
+				case bool_t:
+					cout << "mul" << endl;
+					exit(1);
+					break;
+				case int_t:
+					add_op(int_int_mul_op, -1, get_vals());
+					break;
+				case float_t:
+					add_op(float_int_mul_op, -1, get_vals());
+					break;
+				}
+				break;
+			case float_t:
+				switch(types.back()) {
+				case bool_t:
+					cout << "mul" << endl;
+					exit(1);
+					break;
+				case int_t:
+					switch_type(float_t);
+					add_op(int_float_mul_op, -1, get_vals());
+					break;
+				case float_t:
+					add_op(float_float_mul_op, -1, get_vals());
+					break;
+				}
+				break;
+			}
+		.)
+		| 
+		"/" Value 
+		(. 
+			switch(pop_type()) {
+			case bool_t:
+				cout << "div" << endl;
+				exit(1);
+				break;
+			case int_t:
+				switch(types.back()) {
+				case bool_t:
+					cout << "div" << endl;
+					exit(1);
+					break;
+				case int_t:
+					add_op(int_int_div_op, -1, get_vals());
+					break;
+				case float_t:
+					add_op(float_int_div_op, -1, get_vals());
+					break;
+				}
+				break;
+			case float_t:
+				switch(types.back()) {
+				case bool_t:
+					cout << "div" << endl;
+					exit(1);
+					break;
+				case int_t:
+					switch_type(float_t);
+					add_op(int_float_div_op, -1, get_vals());
+					break;
+				case float_t:
+					add_op(float_float_div_op, -1, get_vals());
+					break;
+				}
+				break;
+			}
+		.)
+		| 
+		"%" Value 
+		(. 
+			if(pop_type() != int_t) {
+				cout << "rem" << endl;
+				exit(1);
+			}
+			if(types.back() != int_t) {
+				cout << "rem" << endl;
+				exit(1);
+			}
+			add_op(int_int_rem_op, -1, get_vals());
+		.)
+    }
+    .
+    
+Value = 
+	"(" Expression ")" 
+	| Boolean
+	| Number 
+	| FuncCall
+	| Variable
+	.
+	
+FuncCall =
+	DefFuncCall
+	.
+	
+DefFuncCall =
+	BOOL "(" Expression ")" 
+	(. 
+		switch(types.back()) {
+		case int_t:
+			switch_type(bool_t);
+			add_op(int_to_bool_op, -1, get_val()); 
+			break;
+		case float_t:
+			switch_type(bool_t);
+			add_op(float_to_bool_op, -1, get_val()); 
+			break;
+		}
+	.)
+	| 
+	INT "(" Expression ")" 
+	(. 
+		switch(types.back()) {
+		case bool_t:
+			switch_type(int_t);
+			add_op(bool_to_int_op, -1, get_val()); 
+			break;
+		case float_t:
+			switch_type(int_t);
+			add_op(float_to_int_op, -1, get_val()); 
+			break;
+		}
+	.)
+    | 
+	FLOAT "(" Expression ")" 
+	(. 
+		switch(types.back()) {
+		case bool_t:
+			switch_type(float_t);
+			add_op(bool_to_float_op, -1, get_val()); 
+			break;
+		case int_t:
+			switch_type(float_t);
+			add_op(int_to_float_op, -1, get_val()); 
+			break;
+		}
+	.)
+	.
+    
+Number =
+	(. wstring res; .)
+	[ "-" (. res += L'-'; .) ]
+	NUMBER (. res += wstring(t->val); .)
+	(
+		"."    (. res += L'.'; .)
+		NUMBER (. res += wstring(t->val); .)
+		(. add_float(stof(res)); .)
+		|
+		(. add_int(stoi(res)); .)
+	)
+    .
+    
+Boolean =
+	("true" | "True") (. add_bool(true); .)
+	|
+	("false" | "False") (. add_bool(false); .)
+    .
+    
+Variable =
+    ID 
+    (. add_var(get_ident(t->val)); .)
+    .
+
+ProcCall =
+    DefProcCall
+    .
+
+DefProcCall = 
+    Print | Println
+    .
+    
+Print =
+   "Print" 
+    "(" 
+    Expression
+	(. 
+		switch(pop_type()) {
+		case bool_t:
+			add_op(bool_print_op, -2, get_val());
+			break;
+		case int_t:
+			add_op(int_print_op, -2, get_val());
+			break;
+		case float_t:
+			add_op(float_print_op, -2, get_val());
+			break;
+		}
+	.)
+    {
+		(. add_op(print_del_op); .)
+        ","
+        Expression
+		(. 
+		switch(pop_type()) {
+		case bool_t:
+			add_op(bool_print_op, -2, get_val());
+			break;
+		case int_t:
+			add_op(int_print_op, -2, get_val());
+			break;
+		case float_t:
+			add_op(float_print_op, -2, get_val());
+			break;
+		}
+	.)
+    }
+    ")"
+    .
+    
+Println =
+    "Println" 
+    "(" 
+    Expression
+	(. 
+		switch(pop_type()) {
+		case bool_t:
+			add_op(bool_print_op, -2, get_val());
+			break;
+		case int_t:
+			add_op(int_print_op, -2, get_val());
+			break;
+		case float_t:
+			add_op(float_print_op, -2, get_val());
+			break;
+		}
+	.)
+    {
+		(. add_op(print_del_op); .)
+        ","
+        Expression
+		(. 
+		switch(pop_type()) {
+		case bool_t:
+			add_op(bool_print_op, -2, get_val());
+			break;
+		case int_t:
+			add_op(int_print_op, -2, get_val());
+			break;
+		case float_t:
+			add_op(float_print_op, -2, get_val());
+			break;
+		}
+	.)
+    }
+    ")"
+	(. add_op(print_endl_op); .)
+    .
+    
+    
+END Program.
+ 
