@@ -2,10 +2,10 @@
 1. Необходимо иметь установленным любой компилятор С++ версии 17 и выше
 2. Обработать грамматику языка в файле MyGrammar.atg по средствам CoCo/R:
 Coco MyGrammar.atg
-4. Скомпилировать полученные файлы (Scanner.cpp + Scanner.h, Parser.cpp + Parser.h) и main.cpp в исполняемый файл:
-g++ -fno-exceptions -std=c++23 -O3 -o program main.cpp Scanner.cpp Parser.cpp
+3. Скомпилировать полученные файлы (Scanner.cpp + Scanner.h, Parser.cpp + Parser.h) и main.cpp в исполняемый файл:
+g++ -fno-exceptions -std=c++23 -O3 -o program main.cpp Scanner.cpp Parser.cpp (build.bat)
 В данном примере используется компилятор g++ версии 13.2.0
-5.1 Для запуска нужно запустить программу интерпретатора с именем файла программы на языке интерпретатора
-program Test.txt
-5.2 Также можно добавить флаг t после имени файла для отображения времени работы интерпретатора
-program Test.txt t
+4.1 Для запуска нужно запустить программу интерпретатора с именем файла программы на языке интерпретатора
+program Test.txt (run.bat)
+4.2 Также можно добавить флаг t после имени файла для отображения времени работы интерпретатора
+program Test.txt t (runt.bat)
